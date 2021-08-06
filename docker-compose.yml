@@ -1,0 +1,32 @@
+version: '3.5'
+
+services: 
+    jupyter-docker:
+        build: 
+            context: ./build
+            dockerfile: ./Dockerfile
+        image: tf-openslide:1.0.0
+        
+        ports:
+            - 8887:8888
+        
+        volumes: 
+            - ./build/src:/tf
+            - ./data:/data
+        environment: 
+            - PASSWORD=1020
+            - TZ=Asia/Seoul
+            - JUPYTER_TOKEN=1020
+        
+        #if nvidia-docker setted activate below
+        deploy:
+            resources:
+                reservations:
+                  devices:
+                  - driver: nvidia
+                    capabilities: [gpu]
+            
+        logging: 
+            driver: local
+            options:
+                max-size: 10m
