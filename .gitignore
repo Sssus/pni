@@ -6,4 +6,6 @@
 *.png
 *.hdf5
 *.xml
+*.pyc
+
 
