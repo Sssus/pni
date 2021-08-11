@@ -13,6 +13,9 @@ services:
         volumes: 
             - ./build/src:/tf
             - ./data:/data
+            - ./model:/tf/model
+            - ./svc:/svc
+            
         environment: 
             - PASSWORD=1020
             - TZ=Asia/Seoul

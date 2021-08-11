@@ -5,8 +5,10 @@ init_params = {
     'level':2,
     'overlap':0.5,
     'patch_size':512,
-    'patch_dir':'./patch_overlap_global_512_stain/'
+    'patch_name':'patches'
 }
+
+
 GLOB_PATH='../../new_data/paip/'
 
 model_cfg = {

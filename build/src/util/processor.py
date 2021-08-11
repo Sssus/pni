@@ -17,7 +17,8 @@ class slide_processor(object):
         self.level = init_params['level']
         self.overlap = init_params['overlap'] # patch overlap rate
         self.patch_size = init_params['patch_size']
-        self.patch_dir = init_params['patch_dir']
+        self.patient_path = init_params['patient_path']
+        self.patch_name = init_params['patch_name']
         
         self.slide = openslide.OpenSlide(self.slide_path)
         self.src_w, self.src_h = self.slide.level_dimensions[0]
@@ -136,7 +137,7 @@ class slide_processor(object):
             for region in regions:
                 pts = [np.array(region,dtype=np.int32)]
                 if len(region)!=4 and key=='p_2':
-                    mask = cv.drawContours(mask,pts,-1,255,1)
+                    mask = cv.fillPoly(mask,pts,255)
                 elif len(region)!=4:
                     mask = cv.fillPoly(mask,pts,255)
                 elif len(region)==4 and key!='p_1' :
@@ -168,18 +169,18 @@ class slide_processor(object):
             cv.imwrite(os.path.join(dir_path,file_name),img)
 
     def execute_patch(self,patch_img,mask_img,patch_count,save_dir,name='p1',show=False,save=False):
+        '''
+        patch_img inputted is RGB image
+        '''
         resize_image = cv.resize(patch_img,(self.patch_size,self.patch_size),cv.INTER_CUBIC)
         resize_mask = cv.resize(mask_img,(self.patch_size,self.patch_size),cv.INTER_CUBIC)
-        norm_image = stain_norm(resize_image)
-        resize_image_RGB = cv.cvtColor(norm_image,cv.COLOR_BGR2RGB)
+        #norm_image = stain_norm(resize_image)
         
         if show==True:
-            #plt.figure(); plt.title('patch'); plt.imshow(resize_image)
-            plt.figure(); plt.title('patch'); plt.imshow(norm_image)
+            plt.figure(); plt.title('patch'); plt.imshow(resize_image)
             plt.figure(); plt.title(f'{name}'); plt.imshow(resize_mask,vmin=0,vmax=255)
         if save==True:
-            #self.save_patch(save_dir+'/image',f'{patch_count}.png',resize_image_RGB)
-            self.save_patch(save_dir+'/image',f'{patch_count}.png',norm_image)
+            self.save_patch(save_dir+'/image',f'{patch_count}.png',resize_image)
             self.save_patch(save_dir+'/mask',f'{patch_count}_{name}.png',np.clip(resize_mask,0,1))        
     
     def get_patch(self, tool='etc', feature = 'global', show=False, save=False):
@@ -193,7 +194,7 @@ class slide_processor(object):
         patch_size_lv2 = patch_size_lv0//self.multiple    
         patch_size_origin = patch_size_lv0*self.mpp
         
-        save_path = os.path.join(self.patch_dir,self.slide_path.split('/')[-2].split('/')[-1],self.slide_path[-8:-4])
+        save_path = os.path.join(self.patient_path,self.patch_name)
         
         tissue_mask = self.get_tissue_mask(area_thr=100000,show=False)
         anno_mask = self.get_anno_mask(tool=tool,show=False)
@@ -223,12 +224,12 @@ class slide_processor(object):
             for x in x_seq:
                 start_x = int(min_x+(s*x/self.multiple)); end_x = int(min_x+((s*(x+int(1/step)))/self.multiple))
                 start_y = int(min_y+(s*y/self.multiple)); end_y = int(min_y+((s*(y+int(1/step)))/self.multiple))
-                
+                # this img patch is 'RGB' image
                 img_patch = np.array(self.slide.read_region(
                     location=(int((min_x*self.multiple)+(s*x)),
                              int((min_y*self.multiple)+(s*y))),
                     level=0, size = (patch_size_lv0,patch_size_lv0)
-                )).astype(np.uint8)[...,:3]
+                ).convert('RGB')).astype(np.uint8)[...,:3]
                 
                 tissue_mask_patch = tissue_mask[start_y:end_y,start_x:end_x]
                 if 'p_1' in anno_mask.keys(): 
