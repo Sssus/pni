@@ -1,6 +1,85 @@
-from model import *
+from util.model import *
 import numpy as np
 import cv2 as cv
+from util.processor import slide_processor
+
+class wsi_predictor(object):
+    def __init__(self,init_params):
+        self.nerve_mdl = build_seg_model(model='deeplab')
+        self.tumor_mdl = build_seg_model(model='deeplab')
+        self.nerve_mdl.load_weights(init_params['nerve_model_path'])
+        self.tumor_mdl.load_weights(init_params['tumor_model_path'])
+        
+    # -------------------------------
+    # Patch 수준의 Prediction
+    # -------------------------------
+    def predict_patch(self,patch,prob=0.5):
+        '''
+        prob : prob보다 작은 확률이면 0으로 mapping , 큰 확률이면 1로 mapping
+        output : nerve predict mask와 tumor predict mask 둘다 return
+        '''
+        patch_input = np.expand_dims(patch,axis=0) # Model에 Feeding하기 위한 shape
+        patch_input./=255 # Scaling
+        pred_nerve = np.squeeze(self.nerve_mdl.predict(patch_input))
+        pred_tumor = np.squeeze(self.tumor_mdl.predict(patch_input))
+        pred_nerve = np.where(pred_nerve>prob,pred_nerve,0)
+        pred_tumor = np.where(pred_tumor>prob,pred_tumor,0)
+        
+        return pred_nerve, pred_tumor
+        
+        
+    # -------------------------------
+    # Slide 수준의 Prediction
+    # -------------------------------
+    
+    def predict_slide(slide_path,overlap=0,patch_size = 512,):
+        '''
+        '''
+        # Slide
+        init_params.update({'slide_path':slide_path,})
+        slide = slide_processor(init_params)
+        
+        ret_mask = np.zeros((slide.dest_h,slide.dest_w)) # 최종 return될 mask
+        nerve_mask = np.zeros((slide.dest_h,slide.dest_w)) # slide 수준의 nerve pred mask
+        tumor_mask = np.zeros((slide.dest_h,slide.dest_w)) # slide 수준의 tumor pred mask
+        tissue_mask = slide.get_tissue_mask()
+        tissue_mask = tissue_mask = cv.morphologyEx(tissue_mask,cv.MORPH_OPEN,cv.getStructuringElement(cv.MORPH_RECT,(5,5)),iterations=1)
+        
+        min_y , min_x = slide.arr.shape[:2]
+        max_x , max_y = (0,0)
+        coord = np.where(tissue_mask>0) # bbox sliding이 없다면 tissue에서 sliding
+        if np.min(coord[1])<min_x: min_x = np.min(coord[1])
+        if np.max(coord[1])>max_x: max_x = np.max(coord[1])
+        if np.min(coord[0])<min_y: min_y = np.min(coord[0])
+        if np.max(coord[0])>max_y: max_y = np.max(coord[0])
+        
+        ## Prepare Sliding
+        slide_w = max_x-min_x
+        slide_h = max_y-min_y
+        step = 1-overlap
+        multiple = slide.src_h//slide.dest_h
+        patch_size = 512; 
+        patch_size_lv0 = 2*patch_size; 
+        patch_size_lv2 = patch_size_lv0//multiple
+        
+        s = int(patch_size_lv0*step)       
+        y_seq,x_seq = slide.get_seq_range(slide_w,slide_h,multiple,patch_size_lv0,s)
+
+        ## Sliding
+        for y in y_seq:
+            for x in x_seq:
+                start_x = int(min_x+(s*x/multiple))
+                start_y = int(min_y+(s*y/multiple))
+                end_x = int(min_x+((s*(x+int(1/step)))/multiple))
+                end_y = int(min_y+((s*(y+int(1/step)))/multiple))   
+                
+                img_patch = np.array(slide.slide.read_region(
+                    location = (int((min_x*multiple) + (s*x)), int((min_y*multiple) + (s*y))),
+                    level = 0,
+                    size = (patch_size_lv0, patch_size_lv0)
+                ).convert('RGB')).astype(np.uint8)[...,:3]
+                
+                
 
 class predictor(object):
     def __init__(self,init_params):

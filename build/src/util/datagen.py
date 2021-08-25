@@ -43,16 +43,16 @@ class clf_generator(keras.utils.Sequence):
 class generator(keras.utils.Sequence):
     """Helper to iterate over the data (as Numpy arrays)."""
 
-    def __init__(self, batch_size, img_size, zip_path_list,is_train):
+    def __init__(self, batch_size, img_size, zip_path_list,is_train,zero_labels):
+        '''
+        zero_labels : zero mask를 생성하는 라벨들의 list, format은 numerical list
+        '''
         self.batch_size = batch_size
         self.img_size = img_size
         self.zip_path_list = zip_path_list
-        self.augment = train_aug() if is_train==True else test_aug()
-        self.augmentor = ImageDataGenerator(
-            rotation_range=90,
-            horizontal_flip=True,
-            vertical_flip=True
-        )
+        self.zero_labels = ['_p'+str(s) for s in zero_labels]
+        self.augmentor = train_aug() if is_train==True else test_aug()
+        
     
     def __len__(self):
         return len(self.zip_path_list) // self.batch_size
@@ -66,16 +66,13 @@ class generator(keras.utils.Sequence):
         batch_y = np.zeros((self.batch_size,) + self.img_size + (1,), dtype="float32")
         for j, path in enumerate(batch_patch_pairs):
             img_path = path[0]; mask_path = path[1]
-            #img = load_img(path, target_size=self.img_size)
             img = cv.imread(img_path)
-            #img = img.astype(np.float32)/255.0
-            batch_x[j] = img
-            if '_p3' in mask_path or '_p4' in mask_path:
+            if np.any([x in mask_path for x in self.zero_labels]):
                 msk_img = np.zeros(self.img_size)
             else:
                 msk_img = np.squeeze(cv.imread(mask_path,0))
-            batch_y[j] = np.expand_dims(msk_img, 2)
-            batch_aug = self.augment(image=batch_x[j],mask=batch_y[j])
+            msk_img = np.expand_dims(msk_img, 2)
+            batch_aug = self.augmentor(image=img,mask=msk_img)
             batch_x[j] = batch_aug['image']; batch_y[j] = batch_aug['mask']
         return batch_x,batch_y
     
@@ -117,22 +114,27 @@ class tumor_generator(keras.utils.Sequence):
 def train_aug():
     ret = Compose([
         HorizontalFlip(),
+        #ChannelShuffle(),
+        #Blur(),
+        #RGBShift(),
+        HueSaturationValue(hue_shift_limit=5,sat_shift_limit=20,val_shift_limit=10,p=.9),
         VerticalFlip(),
-        Rotate(),
+        RandomRotate90(),
         ElasticTransform(),
         #RandomContrast(limit=0.2, p=0.5),
         #GaussNoise(),
         #MotionBlur(),
         #RandomGamma(gamma_limit=(80, 120), p=0.5),
         #RandomBrightness(limit=0.2, p=0.5),
-        #HueSaturationValue(hue_shift_limit=5, sat_shift_limit=20, val_shift_limit=10, p=.9),
-        ToFloat(max_value=255) # Scaling to [0.0 ,1.0]
+        # Scaling to [0.0 ,1.0]
+        ToFloat(max_value=255,always_apply=True,p=1.0),
+
     ])
     return ret
 
 def test_aug():
     ret = Compose([
         #HorizontalFlip(p=0)
-        ToFloat(max_value=255) # Scaling to [0.0 ,1.0]
+        ToFloat(max_value=255,always_apply=True,p=1.0) # Scaling to [0.0 ,1.0]
     ])
     return ret

@@ -2,31 +2,81 @@ from tensorflow.keras import layers ,Model, Input
 import segmentation_models as sm
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 from tensorflow.keras.applications.inception_v3 import preprocess_input
-#from keras.datasets import mnist
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, Activation, Flatten
-from tensorflow.keras.layers import Convolution2D, MaxPooling2D
-from tensorflow.keras import backend as K
 
 from tensorflow.keras.preprocessing import image
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
-from tensorflow.keras import backend as K
-from tensorflow.keras.optimizers import SGD
-from tensorflow.keras.layers import BatchNormalization
+import tensorflow.keras.backend as k
+import gc
+from tensorflow.keras.callbacks import Callback, EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+from tensorflow.keras.optimizers import SGD, Adam, RMSprop
+
 
 
 sm.set_framework('tf.keras')
 
-def build_seg_model(img_size=512,channel=3,n_classes=1,backbone='inceptionresnetv2' ):
-    model = sm.Unet(
-        backbone,
-        input_shape = (img_size,img_size,channel),
-        classes = n_classes,
-        activation='sigmoid',
-        encoder_weights = None
-    )
-    return model
+def build_seg_model(model,backbone,weight,input_shape,n_classes,loss,init_lr,optimizer,activation='sigmoid',is_train=False):
+    '''
+    ---- Possible ( Models , Backbone, Weight ) ----
+    (['Deeplab'] ,  ['xception','mobilenetv2'], ['pascal_voc','city_scape'] ),
+    (['FPN','Unet','Linknet'] ,
+    ['inceptionresnetv2','inceptionv3','vgg16','vgg19',
+    'resnet50','densenet121','mobilenetv2','efficientnetb[0-7]'] ,
+    ['none','imagenet'])
+    '''
+    if model == 'Deeplab' or model=='deeplab':
+        ret = sm.Deeplabv3(weights = weight,input_shape=input_shape,classes = n_classes,activation=activation,backbone=backbone)
+    elif model == 'FPN' or model=='fpn':
+        ret = sm.FPN(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight)
+    elif model == 'Unet' or model=='unet':
+        ret = sm.Unet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight)
+    elif model == 'Linknet' or model=='linknet':
+        ret = sm.Linknet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight)
+    
+    if is_train==False:
+        return ret
+    else:
+        if n_classes==1:
+            loss = build_binary_loss(loss)
+        else:
+            loss = build_multi_loss(loss)
+        optim = Adam(init_lr) if optimizer=='adam' else SGD(init_lr)
+        metrics = [sm.metrics.IOUScore(0.5),sm.metrics.FScore(0.5)]    
+        ret.compile(optim,loss,metrics)
+        return ret
+
+def build_callback(model_path,patience):
+    model_chkpt = ModelCheckpoint(filepath = model_path, monitor = 'val_loss', verbose = 1, save_best_only = True)
+    early_stopping = EarlyStopping(monitor = 'val_loss',patience = patience)
+    lr_plan = ReduceLROnPlateau(monitor='val_loss',factor = 0.5, patience = patience//2)
+    class ClearMemory(Callback):
+        def on_epoch_end(self,epoch,logs = None):
+            gc.collect()
+            k.clear_session()
+    return [model_chkpt,early_stopping,lr_plan,ClearMemory()]
+
+def build_binary_loss(loss):
+    '''
+    ---- Possible Losses ---- 
+    'focal_dice', 'focal_jacard', 'ce_dice', 'ce_jacard', 'ce', 'focal', 'jacard', 'dice'
+    '''
+    if loss == 'focal_dice':
+        ret = sm.losses.binary_focal_dice_loss
+    elif loss == 'focal_jacard':
+        ret = sm.losses.binary_focal_jacard_loss
+    elif loss == 'ce_dice':
+        ret = sm.losses.bce_dice_loss
+    elif loss == 'ce_jacard':
+        ret = sm.losses.bce_jacard_loss
+    elif loss == 'ce':
+        ret = sm.losses.binary_crossentropy
+    elif loss == 'focal':
+        ret = sm.losses.binary_focal_loss
+    elif loss == 'jacard':
+        ret = sm.losses.jacard_loss
+    elif loss == 'dice':
+        ret = sm.losses.dice_loss
+
+
+
 
 def build_unet(img_size, num_classes):
     inputs = Input(shape=img_size + (3,))

@@ -28,6 +28,50 @@ class slide_processor(object):
         self.arr = np.array(self.slide.read_region((0,0),self.level,size = (self.dest_w,self.dest_h)).convert('RGB'))
         
 
+    def get_annotation_dict(self):
+        trees = self.annotation.getroot()[0]
+        w_ratio = self.src_w / self.dest_w; h_ratio = self.src_h / self.dest_h
+        bbox_dict = {}; anno_dict = {}
+        
+        for tree in trees:
+            if tree.get('Type')=='Rectangle':
+                group = tree.get('PartOfGroup')
+                patch_group = 'p_' + str(int(group.split('_')[0])) 
+                #group = 'p_'+str(int(tree.get('PartOfGroup').split('_')[0]))
+                #bbox_list.append(patch_group)
+                bboxes = tree.findall('Coordinates')
+                for bbox in bboxes:
+                    pts = list()
+                    coords = bbox.findall('Coordinate')
+                    for coord in coords:
+                        x = round(float(coord.get('X')))
+                        y = round(float(coord.get('Y')))
+                        x = np.clip(round(x/w_ratio),0,self.dest_w)
+                        y = np.clip(round(y/h_ratio),0,self.dest_h)
+                        pts.append((x,y))
+                if group in bbox_dict.keys():
+                    bbox_dict[patch_group].append(pts)
+                else:
+                    bbox_dict[patch_group] = [pts]
+            else:
+                group = tree.get('PartOfGroup')
+                patch_group = 'p_' + str(int(group.split('_')[0]))
+                regions = tree.findall('Coordinates')
+                for region in regions:
+                    pts = list()
+                    coords = region.findall('Coordinate')
+                    for coord in coords:
+                        x = round(float(coord.get('X')))
+                        y = round(float(coord.get('Y')))
+                        x = np.clip(round(x/w_ratio),0,self.dest_w)
+                        y = np.clip(round(y/h_ratio),0,self.dest_h)
+                        pts.append((x,y))
+                if patch_group in anno_dict.keys():
+                    anno_dict[patch_group].append(pts)
+                else:
+                    anno_dict[patch_group] = [pts]
+        return {'bboxes':bbox_dict,'coords':anno_dict}
+        
     def get_annotation_asap(self):
         ret = dict()
         trees = self.annotation.getroot()[0]
@@ -128,7 +172,7 @@ class slide_processor(object):
     def get_anno_mask(self,tool='etc',show=False):
         ret = dict()
         if tool=='asap':
-            annotation_dict = self.get_annotation_asap()
+            annotation_dict = self.get_annotation_dict()
         else:
             annotation_dict = self.get_annotation()
         for key in annotation_dict.keys():
