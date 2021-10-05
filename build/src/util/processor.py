@@ -12,13 +12,14 @@ from util.stain_normalization import *
 
 class slide_processor(object):
     def __init__(self,init_params):
-        self.slide_path = init_params['svs_path']
+        self.slide_path = init_params['slide_path']
         self.annotation = '' if init_params['xml_path']=='' else etree.parse(init_params['xml_path'])
         self.level = init_params['level']
-        self.overlap = init_params['overlap'] # patch overlap rate
-        self.patch_size = init_params['patch_size']
-        self.patient_path = init_params['patient_path']
-        self.patch_name = init_params['patch_name']
+        self.magnification = 100 if 'magnification' not in init_params.keys() else init_parmas['magnification']
+        
+        self.patient_path = '/'.join(self.slide_path.split('/')[:-1])
+        self.patch_size = init_params['patch_size'] #(이건 get_patch로)
+        self.patch_name = init_params['patch_name'] #(이건 get_patch로)
         
         self.slide = openslide.OpenSlide(self.slide_path)
         self.src_w, self.src_h = self.slide.level_dimensions[0]
@@ -36,7 +37,7 @@ class slide_processor(object):
         for tree in trees:
             if tree.get('Type')=='Rectangle':
                 group = tree.get('PartOfGroup')
-                patch_group = 'p_' + str(int(group.split('_')[0])) 
+                patch_group = 'p' + str(int(group.split('_')[0])) 
                 #group = 'p_'+str(int(tree.get('PartOfGroup').split('_')[0]))
                 #bbox_list.append(patch_group)
                 bboxes = tree.findall('Coordinates')
@@ -49,16 +50,16 @@ class slide_processor(object):
                         x = np.clip(round(x/w_ratio),0,self.dest_w)
                         y = np.clip(round(y/h_ratio),0,self.dest_h)
                         pts.append((x,y))
-                if group in bbox_dict.keys():
+                if patch_group in bbox_dict.keys():
                     bbox_dict[patch_group].append(pts)
                 else:
                     bbox_dict[patch_group] = [pts]
             else:
                 group = tree.get('PartOfGroup')
-                patch_group = 'p_' + str(int(group.split('_')[0]))
+                patch_group = 'p' + str(int(group.split('_')[0]))
                 regions = tree.findall('Coordinates')
                 for region in regions:
-                    pts = list()
+                    pts = []
                     coords = region.findall('Coordinate')
                     for coord in coords:
                         x = round(float(coord.get('X')))
@@ -169,28 +170,63 @@ class slide_processor(object):
             plt.figure(figsize = (14,10)); plt.imshow(ret)
         return cv.morphologyEx(ret*255,cv.MORPH_OPEN,cv.getStructuringElement(cv.MORPH_RECT,(5,5)))
     
+    # --------------------------------
+    # Annotation Mask를 key별로 구하기
+    # --------------------------------
     def get_anno_mask(self,tool='etc',show=False):
-        ret = dict()
+        '''
+        annotation dict 의 형태 : {'bboxes': , 'coords': } 
+        ----
+        bbox를 기준으로 
+        bbox의 key ( class ) 에 해당하는 bbox를 bboxes에 append하고 
+        동일한 key의 annotation이 있다면 coords에 append하고 없다면 bbox자체를 annotation에 넣는다...
+        '''
+        ret = dict(); prt = self.arr
         if tool=='asap':
             annotation_dict = self.get_annotation_dict()
         else:
             annotation_dict = self.get_annotation()
-        for key in annotation_dict.keys():
-            mask = np.zeros((self.dest_h,self.dest_w))
-            regions = annotation_dict[key]
+        i = 0
+        for key in annotation_dict['bboxes'].keys():
+            # Bounding Box안에 Annotation이 있다면 Annotation region 사용
+            if key in annotation_dict['coords'].keys():
+                mask = np.zeros((self.dest_h,self.dest_w))
+                regions = annotation_dict['coords'][key]
+            # Bounding Box안에 Annotation이 없다면 Bbox Region 사용
+            else:
+                mask = np.zeros((self.dest_h,self.dest_w))
+                regions = annotation_dict['bboxes'][key]
+                
             for region in regions:
                 pts = [np.array(region,dtype=np.int32)]
-                if len(region)!=4 and key=='p_2':
-                    mask = cv.fillPoly(mask,pts,255)
-                elif len(region)!=4:
-                    mask = cv.fillPoly(mask,pts,255)
-                elif len(region)==4 and key!='p_1' :
-                    mask = cv.fillPoly(mask,pts,255)
-                else:
-                    pass
-            if show==True:
-                plt.figure(figsize = (14,10)); plt.title(key); plt.imshow(mask)
+                mask = cv.fillPoly(mask,pts,255)
+                prt = cv.drawContours(prt,pts,-1,(100*i,255-100*i,100*i),3)
             ret[key] = mask
+            i+=1
+            
+                
+        '''        
+        i = 0
+        for key in annotation_dict['coords'].keys():
+            mask = np.zeros((self.dest_h,self.dest_w))
+            regions = annotation_dict['coords'][key]
+            for region in regions:
+                pts = [np.array(region,dtype=np.int32)]
+                mask = cv.fillPoly(mask,pts,255)
+                prt = cv.drawContours(prt,pts,-1,(100*i,255-100*i,100*i),3)
+            i+=1
+            ret[key] = mask
+        ## bbox는 visaulize에서만 씀
+        i = 0
+        bboxes = annotation_dict['bboxes'][key]
+        for bbox in bboxes:
+            pts = [np.array(bbox,dtype = np.int32)]
+            prt = cv.drawContours(prt,pts,-1,(100*i,255-100*i,100*i),3)
+        i+=1
+        '''
+        
+        if show==True:
+            plt.figure(figsize = (14,10)); plt.imshow(prt)
         return ret
     
     def get_seq_range(self,slide_width, slide_height, multiple,img_size,s):
@@ -212,22 +248,86 @@ class slide_processor(object):
         if np.max(img)!=0:
             cv.imwrite(os.path.join(dir_path,file_name),img)
 
-    def execute_patch(self,patch_img,mask_img,patch_count,save_dir,name='p1',show=False,save=False):
+    def execute_patch(self,patch_img,mask_img,patch_count,save_dir,slide_name,patch_name='p1',show=False,save=False):
         '''
-        patch_img inputted is RGB image
+        slide_name : patch가 어떤 slide로 부터 extract되었는지 tracking하기 위함 ( 동일 환자가 multi slide일 경우 환자 안에 패치 dir은 하나 )
         '''
         resize_image = cv.resize(patch_img,(self.patch_size,self.patch_size),cv.INTER_CUBIC)
         resize_mask = cv.resize(mask_img,(self.patch_size,self.patch_size),cv.INTER_CUBIC)
         #norm_image = stain_norm(resize_image)
         
         if show==True:
-            plt.figure(); plt.title('patch'); plt.imshow(resize_image)
-            plt.figure(); plt.title(f'{name}'); plt.imshow(resize_mask,vmin=0,vmax=255)
+            plt.figure();
+            plt.subplot(1,2,1); plt.title('patch'); plt.imshow(resize_image)
+            plt.subplot(1,2,2); plt.title(f'{patch_name}'); plt.imshow(resize_mask,vmin=0,vmax=255)
         if save==True:
-            self.save_patch(save_dir+'/image',f'{patch_count}.png',resize_image)
-            self.save_patch(save_dir+'/mask',f'{patch_count}_{name}.png',np.clip(resize_mask,0,1))        
+            self.save_patch(save_dir+'/image',f'{slide_name}_{patch_count}.png',resize_image)
+            self.save_patch(save_dir+'/mask',f'{slide_name}_{patch_count}_{patch_name}.png',np.clip(resize_mask,0,1))        
     
-    def get_patch(self, tool='etc', feature = 'global', show=False, save=False):
+    
+    # ------------------------------------------
+    # Patch Extraction with Bounding box 
+    # ------------------------------------------
+    def get_patch_bbox(
+        self,
+        tool='asap',
+        mag=100,
+        patch_ratio = 0.3,
+        patch_count = 0,
+        overlap = 0.5,
+        show=False,
+        save=False
+    ):
+        '''
+        tool : annotation tool ['asap','etc']
+        mag : magnification for get 100x patch => mag = 100
+        patch_ratio : annotation cell ratio for patch cell 
+        patch_count : for multi slide per one patient.
+        '''
+        slide_name = self.slide_path.split('/')[-1].replace('.tiff','').replace('.svs','')
+        patch_size_lv0 = round( round(self.patch_size/self.mpp) * (100/mag) )
+        patch_size_lv2 = patch_size_lv0//self.multiple
+        step = 1-overlap
+        s = int(patch_size_lv0*step)
+        save_path = os.path.join(self.patient_path,self.patch_name)
+        print(f'SIZE_PATCH_0 : {patch_size_lv0} SIZE_PATCH_2 : {patch_size_lv2}')
+        if patch_count!=0:
+            print(patch_count)
+        anno_mask = self.get_anno_mask(tool=tool)
+        bbox_dict = self.get_annotation_dict()['bboxes']
+
+        patch_count = patch_count
+        for bbox_key in bbox_dict:
+            for bbox in bbox_dict[bbox_key]:
+                patch_key = bbox_key
+                min_x,min_y = np.min(bbox,axis = 0)
+                max_x,max_y = np.max(bbox,axis = 0)
+                slide_w = max_x-min_x; slide_h = max_y-min_y
+                y_seq,x_seq = self.get_seq_range(slide_w,slide_h,self.multiple,patch_size_lv0,s)
+
+                for y in y_seq:
+                    for x in x_seq:
+                        start_x = int(min_x + (s*x/self.multiple))
+                        start_y = int(min_y + (s*y/self.multiple))
+                        end_x   = int(min_x + (s*(x+int(1/step))/self.multiple))
+                        end_y   = int(min_y + (s*(y+int(1/step))/self.multiple))
+
+                        img_patch = np.array(self.slide.read_region(
+                            location = (int((min_x*self.multiple)+(s*x)),
+                                       int((min_y*self.multiple)+(s*y))),
+                            level=0,
+                            size=(patch_size_lv0,patch_size_lv0)
+                        ).convert('RGB')).astype(np.uint8)[...,:3]
+
+                        patch_mask = anno_mask[patch_key][start_y:end_y,start_x:end_x]
+                        if (self.get_ratio_mask(patch_mask)>patch_ratio):
+                            self.execute_patch(
+                                img_patch,patch_mask,patch_count,save_path,slide_name=slide_name,patch_name=patch_key,show=show,save=save
+                            )
+                            patch_count+=1
+        print(patch_count)
+    
+    def get_patch(self, tool='etc', feature = 'global', overlap = 0.5, patch_name='patch',show=False, save=False):
         
         # Patch Size for lv0, lv2 
         # patch_lv0 must be bigger than patch_size to avoid vanishing resolution 
@@ -245,7 +345,7 @@ class slide_processor(object):
 
         print(f'SIZE_PATCH_0 : {patch_size_lv0} SIZE_PATCH_2 : {patch_size_lv2} SIZE_PATCH_ORIGIN : {patch_size_origin}')
 
-        step = 1-self.overlap 
+        step = 1-overlap 
         s = int(patch_size_lv0*step)
         patch_count=0
         print(anno_mask.keys())

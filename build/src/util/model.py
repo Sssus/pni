@@ -13,7 +13,14 @@ from tensorflow.keras.optimizers import SGD, Adam, RMSprop
 
 sm.set_framework('tf.keras')
 
-def build_seg_model(model,backbone,weight,input_shape,n_classes,loss,init_lr,optimizer,activation='sigmoid',is_train=False):
+def build_seg_model(
+    model,
+    backbone = 'xception',
+    weight = 'pascal_voc',
+    input_shape = (512,512,3),
+    activation='sigmoid',
+    n_classes = 1
+):
     '''
     ---- Possible ( Models , Backbone, Weight ) ----
     (['Deeplab'] ,  ['xception','mobilenetv2'], ['pascal_voc','city_scape'] ),
@@ -25,23 +32,13 @@ def build_seg_model(model,backbone,weight,input_shape,n_classes,loss,init_lr,opt
     if model == 'Deeplab' or model=='deeplab':
         ret = sm.Deeplabv3(weights = weight,input_shape=input_shape,classes = n_classes,activation=activation,backbone=backbone)
     elif model == 'FPN' or model=='fpn':
-        ret = sm.FPN(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight)
+        ret = sm.FPN(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,encoder_freeze=True)
     elif model == 'Unet' or model=='unet':
-        ret = sm.Unet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight)
+        ret = sm.Unet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,encoder_freeze=True)
     elif model == 'Linknet' or model=='linknet':
-        ret = sm.Linknet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight)
+        ret = sm.Linknet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,encoder_freeze=True)
     
-    if is_train==False:
-        return ret
-    else:
-        if n_classes==1:
-            loss = build_binary_loss(loss)
-        else:
-            loss = build_multi_loss(loss)
-        optim = Adam(init_lr) if optimizer=='adam' else SGD(init_lr)
-        metrics = [sm.metrics.IOUScore(0.5),sm.metrics.FScore(0.5)]    
-        ret.compile(optim,loss,metrics)
-        return ret
+    return ret
 
 def build_callback(model_path,patience):
     model_chkpt = ModelCheckpoint(filepath = model_path, monitor = 'val_loss', verbose = 1, save_best_only = True)
@@ -59,7 +56,9 @@ def build_binary_loss(loss):
     'focal_dice', 'focal_jacard', 'ce_dice', 'ce_jacard', 'ce', 'focal', 'jacard', 'dice'
     '''
     if loss == 'focal_dice':
-        ret = sm.losses.binary_focal_dice_loss
+        dice_loss = sm.losses.DiceLoss()
+        focal_loss = sm.losses.BinaryFocalLoss(alpha = 0.25, gamma = 6.0)
+        ret = dice_loss + focal_loss
     elif loss == 'focal_jacard':
         ret = sm.losses.binary_focal_jacard_loss
     elif loss == 'ce_dice':

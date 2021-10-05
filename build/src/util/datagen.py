@@ -4,6 +4,86 @@ from tensorflow import keras
 import numpy as np
 import cv2 as cv
 from albumentations import *
+import tensorflow as tf
+
+class generator(tf.data.Dataset):
+    
+    # -----------------------------------------------
+    # file_gen 은 img, mask path를 return하는 iterator
+    # -----------------------------------------------
+    def file_gen(zip_path_list):
+        for zip_path in zip_path_list:
+            img_path,mask_path = zip_path
+            yield (img_path,mask_path)
+    
+    # ------------------------------------------------
+    # map_func은 path로 부터 img를 load하는 map function
+    # ------------------------------------------------
+    def map_func(paths,zero_labels,is_train,binary):
+        img_path = str(paths[0],'utf-8'); msk_path = str(paths[1],'utf-8')
+        zero_labels = ['_p' + str(s) for s in zero_labels]
+        img = cv.imread(img_path)
+        
+        if binary==True:
+            if np.any([x in msk_path for x in zero_labels]):
+                msk = np.zeros(img.shape[:2]).astype(np.float32)
+            else:
+                msk = cv.imread(msk_path,0).astype(np.float32)
+        else:
+            msk  = np.zeros(img.shape).astype(np.float32)
+            if 'p1' in msk_path:
+                msk[...,1] = cv.imread(msk_path,0).astype(np.float32)
+            if 'p2' in msk_path or 'p3' in msk_path:
+                msk[...,2] = cv.imread(msk_path,0).astype(np.float32)
+            background = 1 - msk.sum(axis=-1, keepdims=True)
+            msk[...,0] = np.squeeze(background)
+
+        ## Augmentation
+        if is_train==True:
+            aug = Compose([
+                HorizontalFlip(),
+                HueSaturationValue(hue_shift_limit=5,sat_shift_limit=20,val_shift_limit=10,p=.9),
+                VerticalFlip(),
+                RandomRotate90(),
+                ElasticTransform(),
+                ToFloat(max_value=255,always_apply=True,p=1.0)
+            ])
+        else:
+            aug = Compose([
+                ToFloat(max_value=255,always_apply=True,p=1.0)
+            ])
+        
+        augmented = aug(image=img,mask=msk)
+
+        return augmented['image'], augmented['mask']
+
+    # ------------------------------------------------
+    # class 호출하면 __new__로 dataset class 생성
+    # ------------------------------------------------    
+    def __new__(cls,zip_path_list,batch_size,zero_labels,is_train,binary):
+        ret = tf.data.Dataset.from_generator(
+            cls.file_gen,
+            tf.string,
+            output_shapes = tf.TensorShape([None]),
+            args = (zip_path_list,)
+        )
+        ret = ret.map(
+            lambda x : tf.numpy_function(
+                cls.map_func,
+                [x,zero_labels,is_train,binary],
+                [tf.float32,tf.float32]
+            ),num_parallel_calls = tf.data.experimental.AUTOTUNE
+        )
+        ret = ret.batch(batch_size,drop_remainder = True)
+        ret = ret.prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
+        
+        return ret
+
+
+
+    
+    
+
 
 
 class clf_generator(keras.utils.Sequence):
@@ -40,7 +120,7 @@ class clf_generator(keras.utils.Sequence):
 
     
     
-class generator(keras.utils.Sequence):
+class keras_generator(keras.utils.Sequence):
     """Helper to iterate over the data (as Numpy arrays)."""
 
     def __init__(self, batch_size, img_size, zip_path_list,is_train,zero_labels):

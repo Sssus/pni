@@ -7,5 +7,7 @@
 *.hdf5
 *.xml
 *.pyc
-
+/build/src/.ipynb_checkpoints
+core.*
+/config/nginx
 
