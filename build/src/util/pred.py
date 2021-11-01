@@ -4,6 +4,7 @@ import cv2 as cv
 from util.processor import slide_processor
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import os
 
 class multi_predictor(object):
     def __init__(self,init_params):
@@ -22,13 +23,22 @@ class multi_predictor(object):
         patch_input = patch_input.astype(np.float32)/255.0
 
         pred_prob = self.mdl.predict(patch_input)
+        
         pred_nerve = pred_prob[...,2].squeeze()
         pred_tumor = pred_prob[...,1].squeeze() 
-
-        pred_nerve = np.where(pred_nerve>prob,1,0)
-        pred_tumor = np.where(pred_tumor>prob,1,0)
+        
+        pred_nerve = cv.threshold((pred_nerve*255).astype(np.uint8),127,255,cv.THRESH_BINARY|cv.THRESH_OTSU)[1]
+        pred_tumor = cv.threshold((pred_tumor*255).astype(np.uint8),127,255,cv.THRESH_BINARY|cv.THRESH_OTSU)[1]
+        #pred_nerve = np.where(pred_nerve>prob,1,0)
+        #pred_tumor = np.where(pred_tumor>prob,1,0)
+        
+        # Morphology Open (Erosion & Dilation) for Removing Unwanted Small Object
+        open_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(32,32))
+        pred_nerve = cv.morphologyEx(pred_nerve.astype(np.uint8),cv.MORPH_OPEN,open_kernel)
+        pred_tumor = cv.morphologyEx(pred_tumor.astype(np.uint8),cv.MORPH_OPEN,open_kernel)
 
         return pred_nerve.astype(np.uint8), pred_tumor.astype(np.uint8)
+        #return pred_nerve, pred_tumor
     # -------------------------------------------------
     # Predict Region
     # -------------------------------------------------
@@ -39,6 +49,7 @@ class multi_predictor(object):
             'slide_path':slide_path,
             'xml_path':xml_path
         })
+        
         slide = slide_processor(init_params)
         prt = slide.arr # vis용
         ret_mask = np.zeros((slide.dest_h,slide.dest_w)) # 최종 return될 mask
@@ -134,13 +145,13 @@ class multi_predictor(object):
         if show==True:
             plt.figure(figsize = (14,10)); plt.imshow(prt)
             plt.legend(handles=[pni_legend,nerve_legend,tumor_legend], bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0. )
-
+            
         return ret_mask, prt
 
     # -------------------------------
     # Region Level Evaluation
     # -------------------------------
-    def eval_regions(self,slide_path,xml_path,kernel_size = 12, dilate_iter = 5, level = 5, overlap = 0, patch_size = 512):
+    def eval_regions(self,slide_path,xml_path,save_dir,kernel_size = 12, dilate_iter = 5, level = 5, overlap = 0, patch_size = 512,save = False):
         '''
         모든 바운딩 박스에 대해
         ground truth가 pni인 바운딩 박스 부분의 예측값이 pni(val>0) 라면 pni box를 Detecting하였다고 판단 -> True Positive
@@ -156,31 +167,52 @@ class multi_predictor(object):
             'xml_path':xml_path
         })
         slide = slide_processor(init_params)
+        slide_name = slide_path.split('/')[-1].replace('.tiff','').replace('.svs','')
+        #patient_path = '/'.join(slide_path.split('/')[:-1])
+        #save_dpath = os.path.join(patient_path,save_dir)
+        org_path = '/'.join(slide_path.split('/')[:-2])
+        inf_path = os.path.join(org_path,save_dir)
         
         bbox_dicts = slide.get_annotation_dict()['bboxes']
-        pred_pni = self.predict_regions(
+        pred_pni_mask,pred_pni_img = self.predict_regions(
             slide_path,
             xml_path,
             kernel_size = kernel_size,
             dilate_iter = dilate_iter, 
             level = level, 
             overlap = overlap, 
-            patch_size = patch_size
-        )[0]
+            patch_size = patch_size,
+        )
         
         for key in bbox_dicts:
-            for bbox in bbox_dicts[key]:
+            for i,bbox in enumerate(bbox_dicts[key]):
                 min_x,min_y = np.min(bbox,axis = 0) 
                 max_x,max_y = np.max(bbox,axis = 0)
-                pred_pni_bbox = pred_pni[min_y:max_y,min_x:max_x]
+                pred_pni_bbox = pred_pni_mask[min_y:max_y,min_x:max_x]
+                pred_pni_imgbox = pred_pni_img[min_y:max_y,min_x:max_x]
                 if key=='p3' and np.max(pred_pni_bbox) >0 :
+                    save_dpath = os.path.join(inf_path,'tps'); os.makedirs(save_dpath,exist_ok=True)
+                    tp_len = len(os.listdir(save_dpath))
                     tp +=1
+                    save_fpath  = str(tp_len) + '.jpg'
                 elif key=='p3' and np.max(pred_pni_bbox) ==0 :
+                    save_dpath = os.path.join(inf_path,'fns'); os.makedirs(save_dpath,exist_ok=True)
+                    fn_len = len(os.listdir(save_dpath))
                     fn +=1
+                    save_fpath  = str(fn_len) + '.jpg'
                 elif key!='p3' and np.max(pred_pni_bbox)>0 :
+                    save_dpath = os.path.join(inf_path,'fps'); os.makedirs(save_dpath,exist_ok=True)
+                    fp_len = len(os.listdir(save_dpath))
                     fp +=1
+                    save_fpath  = str(fp_len) + '.jpg'
                 else:
+                    save_dpath = os.path.join(inf_path,'tns'); os.makedirs(save_dpath,exist_ok=True)
+                    tn_len = len(os.listdir(save_dpath))
                     tn +=1
+                    save_fpath  = str(tn_len) + '.jpg'
+                if save==True:
+                    #os.makedirs(save_dpath,exist_ok=True)
+                    cv.imwrite(os.path.join(save_dpath,save_fpath),pred_pni_imgbox)
         return (tp,fp,fn,tn)
 
 
@@ -214,8 +246,16 @@ class wsi_predictor(object):
         #patch_input = patch.astype(np.float32)/255.0 # Scaling
         pred_nerve = np.squeeze(self.nerve_mdl.predict(patch_input))
         pred_tumor = np.squeeze(self.tumor_mdl.predict(patch_input))
-        pred_nerve = np.where(pred_nerve>prob,1,0)
-        pred_tumor = np.where(pred_tumor>prob,1,0)
+        
+        pred_nerve = cv.threshold((pred_nerve*255).astype(np.uint8),127,255,cv.THRESH_BINARY|cv.THRESH_OTSU)[1]
+        pred_tumor = cv.threshold((pred_tumor*255).astype(np.uint8),127,255,cv.THRESH_BINARY|cv.THRESH_OTSU)[1]
+        #pred_nerve = np.where(pred_nerve>prob,1,0)
+        #pred_tumor = np.where(pred_tumor>prob,1,0)
+        
+        # Morphology Open (Erosion & Dilation) for Removing Unwanted Small Object
+        open_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(32,32))
+        pred_nerve = cv.morphologyEx(pred_nerve.astype(np.uint8),cv.MORPH_OPEN,open_kernel)
+        pred_tumor = cv.morphologyEx(pred_tumor.astype(np.uint8),cv.MORPH_OPEN,open_kernel)
         
         return pred_nerve.astype(np.uint8), pred_tumor.astype(np.uint8)
         
@@ -344,8 +384,16 @@ class wsi_predictor(object):
                             ##
                             img_patch = cv.resize(img_patch_0,(patch_size,patch_size),cv.INTER_CUBIC)
                             pred_nerve_p, pred_tumor_p = self.predict_patch(img_patch)
-                            nerve_mask[start_y:end_y,start_x:end_x] = np.logical_or(cv.resize(pred_nerve_p,(end_x-start_x,end_y-start_y)),nerve_mask[start_y:end_y,start_x:end_x])
-                            tumor_mask[start_y:end_y,start_x:end_x] = np.logical_or(cv.resize(pred_tumor_p,(end_x-start_x,end_y-start_y)),tumor_mask[start_y:end_y,start_x:end_x])
+                            
+                            nerve_mask[start_y:end_y,start_x:end_x] = np.logical_or(
+                                cv.resize(pred_nerve_p,(end_x-start_x,end_y-start_y)),
+                                nerve_mask[start_y:end_y,start_x:end_x]
+                            )
+                            tumor_mask[start_y:end_y,start_x:end_x] = np.logical_or(
+                                cv.resize(pred_tumor_p,(end_x-start_x,end_y-start_y)),
+                                tumor_mask[start_y:end_y,start_x:end_x]
+                            )
+                            
         
         # 
         nerve_mask = nerve_mask.astype(np.uint8)
@@ -471,7 +519,7 @@ class wsi_predictor(object):
     # -------------------------------
     # Region Level Evaluation
     # -------------------------------
-    def eval_regions(self,slide_path,xml_path,kernel_size = 12, dilate_iter = 5, level = 5, overlap = 0, patch_size = 512):
+    def eval_regions(self,slide_path,xml_path,save_dir,kernel_size = 12, dilate_iter = 5, level = 5, overlap = 0, patch_size = 512,save = False):
         '''
         모든 바운딩 박스에 대해
         ground truth가 pni인 바운딩 박스 부분의 예측값이 pni(val>0) 라면 pni box를 Detecting하였다고 판단 -> True Positive
@@ -487,30 +535,51 @@ class wsi_predictor(object):
             'xml_path':xml_path
         })
         slide = slide_processor(init_params)
+        slide_name = slide_path.split('/')[-1].replace('.tiff','').replace('.svs','')
+        #patient_path = '/'.join(slide_path.split('/')[:-1])
+        #save_dpath = os.path.join(patient_path,save_dir)
+        org_path = '/'.join(slide_path.split('/')[:-2])
+        inf_path = os.path.join(org_path,save_dir)
         
         bbox_dicts = slide.get_annotation_dict()['bboxes']
-        pred_pni = self.predict_regions(
+        pred_pni_mask,pred_pni_img = self.predict_regions(
             slide_path,
             xml_path,
             kernel_size = kernel_size,
             dilate_iter = dilate_iter, 
             level = level, 
             overlap = overlap, 
-            patch_size = patch_size
-        )[0]
-
+            patch_size = patch_size,
+        )
+        
         for key in bbox_dicts:
-            for bbox in bbox_dicts[key]:
+            for i,bbox in enumerate(bbox_dicts[key]):
                 min_x,min_y = np.min(bbox,axis = 0) 
                 max_x,max_y = np.max(bbox,axis = 0)
-                pred_pni_bbox = pred_pni[min_y:max_y,min_x:max_x]
+                pred_pni_bbox = pred_pni_mask[min_y:max_y,min_x:max_x]
+                pred_pni_imgbox = pred_pni_img[min_y:max_y,min_x:max_x]
                 if key=='p3' and np.max(pred_pni_bbox) >0 :
+                    save_dpath = os.path.join(inf_path,'tps'); os.makedirs(save_dpath,exist_ok=True)
+                    tp_len = len(os.listdir(save_dpath))
                     tp +=1
+                    save_fpath  = str(tp_len) + '.jpg'
                 elif key=='p3' and np.max(pred_pni_bbox) ==0 :
+                    save_dpath = os.path.join(inf_path,'fns'); os.makedirs(save_dpath,exist_ok=True)
+                    fn_len = len(os.listdir(save_dpath))
                     fn +=1
+                    save_fpath  = str(fn_len) + '.jpg'
                 elif key!='p3' and np.max(pred_pni_bbox)>0 :
+                    save_dpath = os.path.join(inf_path,'fps'); os.makedirs(save_dpath,exist_ok=True)
+                    fp_len = len(os.listdir(save_dpath))
                     fp +=1
+                    save_fpath  = str(fp_len) + '.jpg'
                 else:
+                    save_dpath = os.path.join(inf_path,'tns'); os.makedirs(save_dpath,exist_ok=True)
+                    tn_len = len(os.listdir(save_dpath))
                     tn +=1
+                    save_fpath  = str(tn_len) + '.jpg'
+                if save==True:
+                    #os.makedirs(save_dpath,exist_ok=True)
+                    cv.imwrite(os.path.join(save_dpath,save_fpath),pred_pni_imgbox)
         return (tp,fp,fn,tn)
             

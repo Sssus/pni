@@ -55,7 +55,7 @@ if __name__=='__main__':
         binary=True
         n_classes=1
     else:
-        loss = sm.losses.DiceLoss(np.array([1,0.5,1])) + sm.losses.CategoricalFocalLoss(alpha = 0.25, gamma = 6.0)
+        loss = sm.losses.DiceLoss(np.array([0.1,0.1,1.0])) + sm.losses.CategoricalFocalLoss(alpha = 0.25, gamma = 6.0)
         activation = 'softmax'
         binary=False
         n_classes=3
@@ -66,21 +66,21 @@ if __name__=='__main__':
             {'label':3,'restrict':0}
         ]
         ZERO_LABEL_LIST = [
-            {'label':1,'restrict':10},
-            {'label':4,'restrict':20}
+            {'label':1,'restrict':0},
+            {'label':4,'restrict':0}
         ]
     elif CLASS_NAME=='tumor':
         TRUE_LABEL_LIST = [
         {'label':1,'restrict':0}
         ]
         ZERO_LABEL_LIST = [
-            {'label':2,'restrict':50},
-            {'label':3,'restrict':50},
-            {'label':4,'restrict':100}
+            {'label':2,'restrict':0},
+            {'label':3,'restrict':0},
+            {'label':4,'restrict':0}
         ]
     else:
         TRUE_LABEL_LIST = [
-            {'label':1,'restrict':50},
+            {'label':1,'restrict':100},
             {'label':2,'restrict':100},
             {'label':3,'restrict':100},
             {'label':4,'restrict':100}
@@ -133,6 +133,8 @@ if __name__=='__main__':
         VALID_ZIP = shuffle([('/'.join(x.split('/')[:-2])+'/image/'+re.sub('_p[0-9]','',x.split('/')[-1]),x) for x in VALID_ZIP],random_state=311)
 
         print(f'Train Length : {len(TRAIN_ZIP)} Valid Length : {len(VALID_ZIP)}')
+        
+        ZERO_LABELS = [x['label'] for x in ZERO_LABEL_LIST]
         # ---------------------------
         # Datagen
         # ---------------------------
@@ -176,6 +178,7 @@ if __name__=='__main__':
         try:
             model.fit(train_gen, 
                       epochs = EPOCHS,
+                      batch_size = BATCH_SIZE,
                       validation_data=valid_gen,
                       callbacks=callback_list,
                       max_queue_size=36,

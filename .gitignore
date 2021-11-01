@@ -10,4 +10,5 @@
 /build/src/.ipynb_checkpoints
 core.*
 /config/nginx
-
+/src/util/__pycache__
+*.swp

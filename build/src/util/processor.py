@@ -26,18 +26,21 @@ class slide_processor(object):
         self.dest_w, self.dest_h = self.slide.level_dimensions[self.level]
         self.multiple = self.src_w//self.dest_w
         self.mpp = float(self.slide.properties.get('openslide.mpp-x'))
-        self.arr = np.array(self.slide.read_region((0,0),self.level,size = (self.dest_w,self.dest_h)).convert('RGB'))
+        #self.arr = np.array(self.slide.read_region((0,0),self.level,size = (self.dest_w,self.dest_h)).convert('RGB'))
         
 
     def get_annotation_dict(self):
         trees = self.annotation.getroot()[0]
         w_ratio = self.src_w / self.dest_w; h_ratio = self.src_h / self.dest_h
-        bbox_dict = {}; anno_dict = {}
+        bbox_dict = {}; coord_dict = {}
         
         for tree in trees:
             if tree.get('Type')=='Rectangle':
                 group = tree.get('PartOfGroup')
                 patch_group = 'p' + str(int(group.split('_')[0])) 
+                is_test_region = group.split('_')[1]
+                if is_test_region=='test':
+                    patch_group = patch_group+ '_' + is_test_region
                 #group = 'p_'+str(int(tree.get('PartOfGroup').split('_')[0]))
                 #bbox_list.append(patch_group)
                 bboxes = tree.findall('Coordinates')
@@ -67,11 +70,11 @@ class slide_processor(object):
                         x = np.clip(round(x/w_ratio),0,self.dest_w)
                         y = np.clip(round(y/h_ratio),0,self.dest_h)
                         pts.append((x,y))
-                if patch_group in anno_dict.keys():
-                    anno_dict[patch_group].append(pts)
+                if patch_group in coord_dict.keys():
+                    coord_dict[patch_group].append(pts)
                 else:
-                    anno_dict[patch_group] = [pts]
-        return {'bboxes':bbox_dict,'coords':anno_dict}
+                    coord_dict[patch_group] = [pts]
+        return {'bboxes':bbox_dict,'coords':coord_dict}
         
     def get_annotation_asap(self):
         ret = dict()
@@ -150,6 +153,7 @@ class slide_processor(object):
                     ret[group] = [pts]
         return ret
     
+    '''
     def get_tissue_mask(self,area_thr=10000,RGB_min=0,show=False):
         hsv = cv.cvtColor(self.arr,cv.COLOR_RGB2HSV)
         background_R = self.arr[:, :, 0] > filters.threshold_otsu(self.arr[:, :, 0])
@@ -169,7 +173,7 @@ class slide_processor(object):
         if show==True:
             plt.figure(figsize = (14,10)); plt.imshow(ret)
         return cv.morphologyEx(ret*255,cv.MORPH_OPEN,cv.getStructuringElement(cv.MORPH_RECT,(5,5)))
-    
+    '''
     # --------------------------------
     # Annotation Mask를 key별로 구하기
     # --------------------------------
@@ -181,28 +185,28 @@ class slide_processor(object):
         bbox의 key ( class ) 에 해당하는 bbox를 bboxes에 append하고 
         동일한 key의 annotation이 있다면 coords에 append하고 없다면 bbox자체를 annotation에 넣는다...
         '''
-        ret = dict(); prt = self.arr
+        #prt = self.arr
         if tool=='asap':
             annotation_dict = self.get_annotation_dict()
         else:
             annotation_dict = self.get_annotation()
         i = 0
+        mask = np.zeros((self.dest_h,self.dest_w))
         for key in annotation_dict['bboxes'].keys():
+            lbl = 1 if '1' in key else 2 if '2' in key else 3 if '3' in key else 4 # tumor는 1, nerve는 2, pni(nerve)는 3, normal은 4에 mapping
             # Bounding Box안에 Annotation이 있다면 Annotation region 사용
             if key in annotation_dict['coords'].keys():
-                mask = np.zeros((self.dest_h,self.dest_w))
                 regions = annotation_dict['coords'][key]
             # Bounding Box안에 Annotation이 없다면 Bbox Region 사용
             else:
-                mask = np.zeros((self.dest_h,self.dest_w))
                 regions = annotation_dict['bboxes'][key]
                 
             for region in regions:
                 pts = [np.array(region,dtype=np.int32)]
-                mask = cv.fillPoly(mask,pts,255)
-                prt = cv.drawContours(prt,pts,-1,(100*i,255-100*i,100*i),3)
-            ret[key] = mask
-            i+=1
+                mask = cv.fillPoly(mask,pts,lbl)
+                #prt = cv.drawContours(prt,pts,-1,(100*i,255-100*i,100*i),3)
+        ret = mask
+        
             
                 
         '''        
@@ -262,7 +266,7 @@ class slide_processor(object):
             plt.subplot(1,2,2); plt.title(f'{patch_name}'); plt.imshow(resize_mask,vmin=0,vmax=255)
         if save==True:
             self.save_patch(save_dir+'/image',f'{slide_name}_{patch_count}.png',resize_image)
-            self.save_patch(save_dir+'/mask',f'{slide_name}_{patch_count}_{patch_name}.png',np.clip(resize_mask,0,1))        
+            self.save_patch(save_dir+'/mask',f'{slide_name}_{patch_count}_{patch_name}.png',np.clip(resize_mask,0,4))        
     
     
     # ------------------------------------------
@@ -298,6 +302,9 @@ class slide_processor(object):
 
         patch_count = patch_count
         for bbox_key in bbox_dict:
+            # Test 용 Region은 Patch를 추출하지 않습니다.
+            if 'test' in bbox_key:
+                continue
             for bbox in bbox_dict[bbox_key]:
                 patch_key = bbox_key
                 min_x,min_y = np.min(bbox,axis = 0)
@@ -319,8 +326,9 @@ class slide_processor(object):
                             size=(patch_size_lv0,patch_size_lv0)
                         ).convert('RGB')).astype(np.uint8)[...,:3]
 
-                        patch_mask = anno_mask[patch_key][start_y:end_y,start_x:end_x]
-                        if (self.get_ratio_mask(patch_mask)>patch_ratio):
+                        patch_mask = anno_mask[start_y:end_y,start_x:end_x]
+                        over_limit = 1.01 if patch_key=='p4' else 0.75
+                        if (self.get_ratio_mask(patch_mask)>patch_ratio) and (self.get_ratio_mask(patch_mask)<over_limit):
                             self.execute_patch(
                                 img_patch,patch_mask,patch_count,save_path,slide_name=slide_name,patch_name=patch_key,show=show,save=save
                             )
@@ -349,7 +357,7 @@ class slide_processor(object):
         s = int(patch_size_lv0*step)
         patch_count=0
         print(anno_mask.keys())
-        min_y , min_x = self.arr.shape[:2]
+        min_y , min_x = (self.dest_h,self.dest_w)
         max_x , max_y = (0,0)
         
         for key in anno_mask.keys():

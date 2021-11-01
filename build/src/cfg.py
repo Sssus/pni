@@ -17,17 +17,17 @@ DATA_SPLIT = [0.6,0.2,0.2] # train valid test 환자의 분리
 MAGNIFICATION=100      # **************** Change ****************** #
 PATCH_SIZE = 512 # 추출할 패치의 사이즈  
 OVERLAP = 0.5 # 패치의 오버랩 추출 (0이면 overlap이 없음)  # **************** Change ****************** #
-LEVEL = 5    # **************** Change ****************** #
+LEVEL = 2    # **************** Change ****************** #
 SLIDE_FORMAT='.tiff'
 XML_NAME = '.xml' # svs파일과 대응되는 xml파일의 형식 (abcd.svs => abcd_nerve.xml)
 PATCH_NAME = 'patch100' # 패치를 추출하여 저장할 directory name  # **************** Change ****************** #
-PATCH_NAME = f'patch_{MAGNIFICATION}_{LEVEL}'
+PATCH_NAME = f'patch_{MAGNIFICATION}_{LEVEL}_{str(OVERLAP)}'
 
 
 # ------------------
 # Datagen Config 
 # ------------------
-CLASS_NAME = 'tumor' # **************** Change ****************** #
+CLASS_NAME = 'nerve' # **************** Change ****************** #
 INPUT_SIZE = (PATCH_SIZE,PATCH_SIZE)
 
 BATCH_SIZE = 32   # **************** Change ****************** #
@@ -39,21 +39,21 @@ if CLASS_NAME=='nerve':
         {'label':3,'restrict':0}
     ]
     ZERO_LABEL_LIST = [
-        {'label':1,'restrict':10},
-        {'label':4,'restrict':20}
+        {'label':1,'restrict':0},
+        {'label':4,'restrict':0}
     ]
 elif CLASS_NAME=='tumor':
     TRUE_LABEL_LIST = [
     {'label':1,'restrict':0}
     ]
     ZERO_LABEL_LIST = [
-        {'label':2,'restrict':50},
-        {'label':3,'restrict':50},
-        {'label':4,'restrict':100}
+        {'label':2,'restrict':0},
+        {'label':3,'restrict':0},
+        {'label':4,'restrict':0}
     ]
 else:
     TRUE_LABEL_LIST = [
-        {'label':1,'restrict':50},
+        {'label':1,'restrict':100},
         {'label':2,'restrict':100},
         {'label':3,'restrict':100},
         {'label':4,'restrict':100}
@@ -69,7 +69,7 @@ else:
 # ------------------
 INPUT_SHAPE = (PATCH_SIZE,PATCH_SIZE,3)
 EPOCHS = 200
-PATIENCE = 10
+PATIENCE = 12
 N_CLASSES = 1
 MODEL_PATH = './model/0824_deeplabv3.hdf5'
 MODEL = 'deeplab'

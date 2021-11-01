@@ -21,23 +21,21 @@ class generator(tf.data.Dataset):
     # ------------------------------------------------
     def map_func(paths,zero_labels,is_train,binary):
         img_path = str(paths[0],'utf-8'); msk_path = str(paths[1],'utf-8')
-        zero_labels = ['_p' + str(s) for s in zero_labels]
         img = cv.imread(img_path)
         
         if binary==True:
-            if np.any([x in msk_path for x in zero_labels]):
-                msk = np.zeros(img.shape[:2]).astype(np.float32)
-            else:
-                msk = cv.imread(msk_path,0).astype(np.float32)
+            msk = cv.imread(msk_path,0)
+            for z in zero_labels:
+                msk[msk==z]=0
+            msk = np.clip(msk,0,1).astype(np.float32)
+            
         else:
             msk  = np.zeros(img.shape).astype(np.float32)
-            if 'p1' in msk_path:
-                msk[...,1] = cv.imread(msk_path,0).astype(np.float32)
-            if 'p2' in msk_path or 'p3' in msk_path:
-                msk[...,2] = cv.imread(msk_path,0).astype(np.float32)
-            background = 1 - msk.sum(axis=-1, keepdims=True)
-            msk[...,0] = np.squeeze(background)
-
+            lbl_msk = cv.imread(msk_path,0)
+            msk[...,0] = lbl_msk==0*1
+            msk[...,1] = lbl_msk==1*1
+            msk[...,2] = np.logical_or((lbl_msk==2),(lbl_msk==3))*1
+            msk = msk.astype(np.float32)
         ## Augmentation
         if is_train==True:
             aug = Compose([

@@ -12,5 +12,5 @@ services:
       - ./config/nginx/conf.d/:/etc/nginx/conf.d:ro
       - ./config/nginx/www/:/var/www:ro
       - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./data/colon/IS/S14-327/:/img/:ro
+      - ./data/colon/IS/:/img/:ro
 

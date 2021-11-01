@@ -19,7 +19,8 @@ def build_seg_model(
     weight = 'pascal_voc',
     input_shape = (512,512,3),
     activation='sigmoid',
-    n_classes = 1
+    n_classes = 1,
+    upconv='upsampling'
 ):
     '''
     ---- Possible ( Models , Backbone, Weight ) ----
@@ -34,7 +35,7 @@ def build_seg_model(
     elif model == 'FPN' or model=='fpn':
         ret = sm.FPN(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,encoder_freeze=True)
     elif model == 'Unet' or model=='unet':
-        ret = sm.Unet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,encoder_freeze=True)
+        ret = sm.Unet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,decoder_block_type=upconv, encoder_freeze=True)
     elif model == 'Linknet' or model=='linknet':
         ret = sm.Linknet(backbone, input_shape = input_shape,classes=n_classes, activation=activation,encoder_weights=weight,encoder_freeze=True)
     
