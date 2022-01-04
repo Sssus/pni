@@ -160,17 +160,6 @@ ZERO_LABELS = [x['label'] for x in ZERO_LABEL_LIST]
 NERVE_MODEL = 'deeplab'
 TUMOR_MODEL = 'deeplab'
 
-NERVE_MODEL_PATH = '/tf/model/0820_deeplabv3.hdf5'
-TUMOR_MODEL_PATH = '/tf/model/0901_deeplab_xception_ish_tumor.hdf5'
-
-
-
-
-
-
-
-
-
 init_params = {
     'level':LEVEL,
     'patch_size':PATCH_SIZE,

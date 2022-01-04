@@ -7,8 +7,16 @@
 *.hdf5
 *.xml
 *.pyc
+*.ipynb
 /build/src/.ipynb_checkpoints
 core.*
 /config/nginx
 /src/util/__pycache__
+/src/model
+/src/.Trash-0
+/src/.ipynb_checkpoints
+/src/__pycache__
 *.swp
+/config
+/sec
+/svc

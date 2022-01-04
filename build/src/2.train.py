@@ -51,7 +51,7 @@ if __name__=='__main__':
     CLASS_NAME, MODEL, BACKBONE, WEIGHT, TODAY, MODEL_PATH = parse_func()
     if CLASS_NAME=='tumor' or CLASS_NAME=='nerve':
         if LOSS=='focal':
-            loss = sm.losses.DiceLoss(smooth=1e+0,) + sm.losses.BinaryFocalLoss(alpha = 0.25, gamma = 6.0)
+            loss = sm.losses.DiceLoss(smooth=1e+0,) + sm.losses.BinaryFocalLoss(alpha = 0.25, gamma = 2.0)
         elif LOSS=='ce':
             loss = sm.losses.DiceLoss(smooth=1e+0,) + sm.losses.BinaryCELoss()
         else:
@@ -61,11 +61,11 @@ if __name__=='__main__':
         n_classes=1
     else: ## Class Weight is computed for 5 batches. and Computed by sklearn . then log1p for cw
         if LOSS=='focal':
-       	    loss = sm.losses.DiceLoss(smooth=1e+0,class_weights=np.array([0.4,0.7,3.0])) + sm.losses.CategoricalFocalLoss(alpha = 0.25, gamma = 6.0)
+            loss = sm.losses.DiceLoss(smooth=1e-2,) + sm.losses.CategoricalFocalLoss(alpha = 0.25, gamma = 2.0)
         elif LOSS=='ce':
-            loss = sm.losses.DiceLoss(smooth=1e+0,class_weights=np.array([0.4,0.7,3.0])) + sm.losses.CategoricalCELoss() # Back, Tumor, Nerve
+            loss = sm.losses.DiceLoss(smooth=1e-2,) + sm.losses.CategoricalCELoss() # Back, Tumor, Nerve
         else:
-            loss = sm.losses.DiceLoss(smooth=1e+0,class_weights=np.array([0.4,0.7,3.0])) 
+            loss = sm.losses.DiceLoss(smooth=1e-2,) 
         activation = 'softmax'
         binary=False
         n_classes=3
@@ -143,7 +143,7 @@ if __name__=='__main__':
     # -------------------------------------------------
     # Model Build and Compile with distributed strategy
     # -------------------------------------------------
-    optim = Adam(INITIAL_LEARNING_RATE)
+    optim = Adam(1e-3)
     metrics = [sm.metrics.IOUScore(threshold=0.5), sm.metrics.FScore(threshold=0.5), sm.metrics.Precision(), sm.metrics.Recall() ]        
     strategy = tf.distribute.MirroredStrategy()
     print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
@@ -155,7 +155,8 @@ if __name__=='__main__':
             weight = WEIGHT,
             input_shape = INPUT_SHAPE,
             n_classes = n_classes,
-            activation = activation
+            activation = activation,
+            #decoder=DECODER
         )
         model.compile(optim, loss, metrics)
     
