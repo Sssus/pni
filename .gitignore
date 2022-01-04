@@ -21,3 +21,4 @@ core.*
 /config
 /sec
 /svc
+docker-compose-nginx.yml
