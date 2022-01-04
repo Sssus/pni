@@ -23,3 +23,4 @@ NUM_CLASSES : binary의 경우 1
 pairs에 model_type, backbone, pretrained_weight를 쌍으로 넣어서 2.train.py를 호출하여 실행합니다.
 
 
+
