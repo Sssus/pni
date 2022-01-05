@@ -4,6 +4,7 @@
 /sec
 *.svs
 *.png
+!/build/src/patch_sample.png
 *.hdf5
 *.xml
 *.pyc

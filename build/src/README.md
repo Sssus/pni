@@ -1,26 +1,65 @@
-1.patch_extraction.py 
-- 1) config python script cfg.py에서 추출하고자 하는 parameter를 설정합니다.
-배율, 패치사이즈, 오버랩, level을 바꾸어주고 패치를 저장할 directory 이름을 PATCH_NAME에 설정합니다. 패치는 환자 밑에 생성됩니다. 
-- 2) Docker container run
-- 3) python 1.patch_extraction.py
+## Table of Contents <!-- omit in toc -->
 
-2. train.py
-- 1) cfg.py에서 두가지 config section을 받아서 train
--- (datagen config) 
-```
-CLASS_NAME : binary의 경우 segmentation할 target의 class를 설정
-BATCH_SIZE : datagen이 yield하는 batch_size 설정
-NUM_CLASSES : binary의 경우 1 
-```
--- (train config)
-```
-목적에 맞는 train config
-```
-- 2) train.py는 config에서 받는 config값과 별개로 argument를 받아서 script를 실행합니다. argument에는 model의 type과 backbone , 그리고 finetuning을 실행하므로 pretrained_weight를 받습니다.
+- [Overview](#overview)
+- [Data](#data)
+- [Modeling](#modeling)
+- [Development](#development)
+- [References](#references)
+## Overview
+<b>Perineural Invasion</b>(pni) 
+ means that cancer cells were seen surrounding along a nerve within tissue. When this is found, it means that there is a higher chance that the cancer has spread outside tissue. goal of research is to detect pni in colon cancer with DL.
 
-3. train.sh
-동일한 config안에 parameter만 바꾸어서 model을 train합니다.
-pairs에 model_type, backbone, pretrained_weight를 쌍으로 넣어서 2.train.py를 호출하여 실행합니다.
+## Data
+<details>
+ <summary > <b>Slide </b></summary> 
+ All Slide is Colon Slide scanned by 40x Aperio from International Seongmo Hosp. and  labeled Polygonal Area with Bounding Box of Interest by Pathologist with ASAP which is open source to annotate large scale image.
+</details>
+<details>
+ <summary><b>Patch</b></summary> 
+ We used 10x (mpp : 1.0) and (512,512,3) sized patch image from slide by bounding box sliding.
+</details>
+
+## Modeling
+<details>
+ <summary><b>Pipeline</b></summary> 
+ Experiments are proceeded as follows.<br>
+Data Definition => Patch Extraction => Build DataGenerator with Patch acoording to Experiments Condition (e.g. Binary, Multiple ... ) => Train Segmentation Model => Patch Level Evaluation => Region Level Evaluation
+</details>
+
+## Development
+<details>
+ <summary><b>Code Explnation</b></summary> 
+  <div markdown="1">
+
+  - 1.patch_extraction.py <br>
+    Extraction Patch from Slide with Target mpp (or Target Magnificiation) & Target Size.
+    ``` 
+    python 1.patch_extraction.py 
+    ```
+
+  - 2.train&#46;py<br>
+    Train Segmentation Model with Given Parameters (train class, train model, model backbone, pretrained weight, loss function)
+    ```
+    python 2.train.py multi unet efficientnetb0 imagenet ce
+    ```
+
+  - 3.train&#46;sh<br>
+    Bash Script for Various Train and Notification GPU Allocation to Slack
+    ```
+    chmod 755 3.train.sh
+    ./3.train.sh
+    ```
+
+</div>
+</details>
+<details>
+ <summary><b>Test Dashboard</summary> 
+  <div markdown="1">
+  <a href='http://pni.ssus.work'> Go Site </a>
+  </div>
+</details>
+
+## References
 
 
 
