@@ -17,6 +17,7 @@
 <details>
  <summary><b>Patch</b></summary> 
  We used 10x (mpp : 1.0) and (512,512,3) sized patch image from slide by bounding box sliding.
+ <img src=https://github.com/Sssus/pni/blob/master/build/src/patch_sample.png>
 </details>
 
 ## Modeling
